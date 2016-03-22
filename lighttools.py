@@ -5,39 +5,64 @@ Some functions taken from the ws281x library.
 TODO: Either modify neopixels.py or make this a complete wrapper for it
 """
 
-from neopixel import *
+from neopixel import Color
 import numpy as np
+import random
+
+REVERSED = True
 
 BLACK = Color(0, 0, 0)
 WHITE = Color(255, 255, 255)
 RED = Color(255, 0, 0)
 
-def wheel(pos, n = 255):
-    """Generate rainbow colors across n positions."""
-    r = 3 * int(255/n) # We always want range 0-255 for each pixel
-    p = pos * 3 * r
-    if pos < (n / 3):
-        return Color(pos * r, n - pos * r, 0)
-    elif pos < (2 * n / 3):
-        pos -= int(n / 3)
-        return Color(n - pos * r, 0, pos * r)
+BLACK_RGB = (0, 0, 0)
+WHITE_RGB = (255, 255, 255)
+
+def wheel(position, n = 255):
+    """Generate rainbow colors across n positions. Returns (R, G, B) tuple"""
+    position *= int(255/n) # Scale input to the 0-255 range    
+    #p = position * 3 * r
+    if position < 85:
+        return Color(position*3, 255 - position*3, 0)
+    elif position < 170:
+        position -= 85
+        return Color(255 - position*3, 0, position*3)
     else:
-        pos -= int(2 * n / 3)
-        return Color(0, pos * r, n - pos * r)
+        position -= 170
+        return Color(0, position*3, 255 - position*3)
+
+def wheel_RGB(position, n = 255):
+    """Generate rainbow colors across n positions. Returns (R, G, B) tuple"""
+    position *= int(255/n) # Scale input to the 0-255 range    
+    #p = position * 3 * r
+    if position < 85:
+        return np.array([position*3, 255 - position*3, 0])
+    elif position < 170:
+        position -= 85
+        return np.array([255 - position*3, 0, position*3])
+    else:
+        position -= 170
+        return np.array([0, position*3, 255 - position*3])
 
 class sarahs_colours:
-    def __init__(self):
+    def __init__(self, n = 144):
 
-        # Sarah's colours makes a spectrum of colours with blocks of continuous colours and controllable transitions
+        # Makes Sarah's rainbow with blocks of 11 leds of a colour
+        # [(255, 0, 0), (255, 128, 0), (255, 255, 0), (2, 255, 0), (0, 255, 255), (0, 0, 255), (128, 0, 255), (255, 0, 128)]
+        # and transitions over 8 pixess to the next block
+        # this is hopelessly specific, I might as well have just prepopulated a list...
+        # 
+        # colours: list of colours as 24-bit
+        # rgbs: list of colours as [r, g, b] ndarrays
+        # n: number of points to return colours over        
         #
-	    # Returns a list of np.array objects of the form [r,g,b]
-        # TODO make it work for any number of pixels /doh
-	    #
+        self.n = n
         colours = []
         rgbs = []
         r, g, b = 255, 0, 0
         colour_px, step_px = 11, 8    
-        transitions = [(0, 16, 0), (0, 15, 0), (-31, 0 , 0), (0, 0 , 31), (0, -31, 0), (15, 0, 0), (16, 0, -16)]
+        transitions = [(0, 16, 0), (0, 15, 0), (-31, 0 , 0), (0, 0 , 31), 
+                       (0, -31, 0), (15, 0, 0), (16, 0, -16)]
 
         for i in range(len(transitions)): #Notes
             r1, g1, b1 = transitions[i]
@@ -51,19 +76,31 @@ class sarahs_colours:
                 rgbs.append(np.array([r, g, b]))
                 colours.append(Color(r, g, b))
     
-        #and the final colour also held
+        # and the final colour also held
         for j in range(colour_px):
                 rgbs.append(np.array([r, g, b]))
                 colours.append(Color(r, g, b))
 
         self.colours = colours
+        """
+        for rgb in rgbs:
+            runs = 2            
+            for run in runs:
+        """
+            
+
+
         self.rgbs = rgbs
 
-    def getColour(i):
-        return colours[i]
+    def getColour(self, i):        
+        return self.colours[i]
 
-    def getRGB(i):
-        return rgbs[i]
+    def getRGB(self, i):
+        # Returns a numpy array [r, g, b]
+        return self.rgbs[int(i * 144/self.n)]
+
+# def colour_blender(colours, numpixels):
+    # Map the 
 
 def whitelight(strip, mags):
     for i in range(len(strip.numPixels())):
@@ -81,17 +118,46 @@ def arrayToColour(array):
     r, g, b = int(array[0]), int(array[1]), int(array[2])
     return Color(r, g, b)
     
+def test(strip):
+    rands = [[random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)]
+             for pixel in range(strip.numPixels())]
+    setpixels(strip, rands)
+
+def setpixels(strip, colours, scale = False):
+    # Convenience method that sets and updates the entire strip
+    # Takes a list of integers that map directly to 24-bit colour space or a list of [r,g,b] ndarrays
+     
+    # Check whether we have more pixels or colours
+    # TODO: scaling options to always use all pixels?  YES!!
+    if len(colours) > strip.numPixels() :
+        for i in range(strip.numPixels()):
+            if REVERSED:
+                n = strip.numPixels() - i
+            else:
+                n = i
+            try: #Simplest case; we got a list of integers that map directly to 24-bit colour space
+                strip.setPixelColor(n, colours[i])
+            except: #We got a list of rgb arrays TODO: but what if we didn't??
+                strip.setPixelColor(n, arrayToColour(colours[i]))
+    else:
+        scalefactor = int(strip.numPixels()/len(colours)) if scale else 1
+        for i in range(len(colours)):
+            for j in range(scalefactor):
+                if REVERSED:
+                    n = strip.numPixels() - (i*scalefactor + j)
+                else:
+                    n = i*scalefactor + j
+                try:
+                    strip.setPixelColor(n, colours[i])
+                except:
+                    strip.setPixelColor(n, arrayToColour(colours[i]))
+    
+    strip.show()
+"""
 def setpixels(strip, colours):
     # Convenience method that sets and updates the entire strip
     # Takes a list of integers that map directly to 24-bit colour space or a list of [r,g,b] ndarrays
-    # Duck typing preferred to overloading or type checking...
-    # ZIP!!!
-    """
-    for lat, long in zip(Latitudes, Longitudes):
-    print lat, long
-    """
-    
-      
+     
     # Check whether we have more pixels or colours
     # TODO: scaling options to always use all pixels?
     if len(colours) > strip.numPixels() :
@@ -108,4 +174,4 @@ def setpixels(strip, colours):
                 strip.setPixelColor(i, arrayToColour(colours[i]))
     
     strip.show()
-
+"""

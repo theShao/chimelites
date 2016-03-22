@@ -18,133 +18,104 @@ sudo modprobe -r snd_bcm2835
 edit /etc/modules to stop it loading at all
 @author: Jim
 """
-import threading
+import threading, itertools, time, inspect
 import pyaudio
-import numpy as np
-import struct # used for dealing with C-like structs such as the output from pyaudio
-import time, math, random 
+# import BrickPi # Communication with Lego NXT and EV3 sensors and motors
+import soundtools, lighttools, programs
+from neopixel import * # TODO: Get shot of this...
+import RPi.GPIO as GPIO
+GPIO.setmode(GPIO.BCM)
 
-import soundtools, lighttools
+GPIO.setup(26, GPIO.IN, pull_up_down=GPIO.PUD_UP) # Set up the pin we'll be using for the pushswitch
 
-from neopixel import *
 
+RUNNING = True
 
 # LED strip configuration:
-LED_COUNT      = 144      # Number of LED pixels.
+LED_COUNT      = 72     # Number of LED pixels.
 LED_PIN        = 18      # GPIO pin connected to the pixels (must support PWM!).
 LED_FREQ_HZ    = 800000  # LED signal frequency in hertz (usually 800khz)
-LED_DMA        = 11       # DMA channel to use for generating signal (try 5)
-LED_BRIGHTNESS = 16     # Set to 0 for darkest and 255 for brightest
+LED_DMA        = 11      # DMA channel to use for generating signal (try 5)
+LED_BRIGHTNESS = 128      # Set to 0 for darkest and 255 for brightest
 LED_INVERT     = False   # True to invert the signal (when using NPN transistor level shift)
 
-# Some constants for the audio input
-CHUNK = 1024 # Samples
+# pyAudio configuration.
+CHUNK = 756             # Samples
 FORMAT = pyaudio.paInt16 # binary-packed 2-byte shorts
 CHANNELS = 1
-RATE = 11500 # Samples per second
-MAXFREQ = RATE//2 # Highest freq it's possible to detect at this sample rate
+RATE = 22100             # Samples per second
+MAXFREQ = RATE//2        # Highest freq it's possible to detect at this sample rate
+MINFREQ = RATE/CHUNK # simply not true... 
 
-GOERTZELFREQS = np.array((438,491,521,586,655,691,780,866)) # Aminor scale integers for Goertzel filter
-LOWFREQ = 400
-HIGHFREQ = 900
-FFTFIDELITY = 6350 #magic.
-
-
-# Create NeoPixel object with appropriate configuration.
-strip = Adafruit_NeoPixel(LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, LED_INVERT, LED_BRIGHTNESS)
-# Initialize the library (must be called once before other functions).
-strip.begin()
-
+# Set up audio stream first; ALSA spams the output
 stream = pyaudio.PyAudio().open(format=FORMAT,
                 channels=CHANNELS,
                 rate=RATE,
                 input=True,
                 frames_per_buffer=CHUNK)
 
+"""
+# BrickPi setup for lego sensors
+BrickPi.BrickPiSetup()  # setup the serial port for communication
+BrickPi.BrickPi.SensorType[BrickPi.PORT_1] = BrickPi.TYPE_SENSOR_TOUCH   #Set the type of sensor at PORT_1
+BrickPi.BrickPiSetupSensors()   #Send the properties of sensors to BrickPi
+"""
 
-rainbow = lighttools.sarahs_colours()
+# Set up LED strip
+print("Seting up LED strip with {} LEDs".format(LED_COUNT))
+strip = Adafruit_NeoPixel(LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, LED_INVERT, LED_BRIGHTNESS)
+strip.begin()
 
-rainbow2 = [lighttools.wheel(n, strip.numPixels()) for n in range(strip.numPixels())]
-
-lighttools.setpixels(strip, rainbow.colours)
+# Flash some colours to show it's working
+lighttools.test(strip)
 time.sleep(0.5)
-
-gfilter = soundtools.goertzelFilter(RATE, CHUNK, GOERTZELFREQS)
-fft = soundtools.realFourier(FFTFIDELITY, RATE, CHUNK, (LOWFREQ, HIGHFREQ))
-
-print("* Listening")
-
-pixels = [0 for _ in range(strip.numPixels())]
-
 lighttools.clear(strip)
-"""
+
+# Find and initialize all the classes in the programs module
+print("Initializing programs")
+programs = [program(RATE, CHUNK, LED_COUNT) 
+            for name, program in inspect.getmembers(programs) 
+            if inspect.isclass(program)
+            and name[:3] == "DO_"]
+program_cycle = itertools.cycle(programs) # Loop through them forever
+current_program = next(program_cycle)
+
+# Thread listening for button press
+print("Starting button listener thread")
+def button_listener(button_pressed):
+    while RUNNING:
+        if not GPIO.input(26):
+            button_pressed.append(None)
+            time.sleep(0.5)
+        """
+        if not button_pressed: # Don't queue them up.
+            result = BrickPi.BrickPiUpdateValues() # Returns 0 on success
+            if not result:
+                if BrickPi.BrickPi.Sensor[BrickPi.PORT_1]: # True if button is pressed
+                    button_pressed.append(None)
+                    time.sleep(0.5)
+        """
+        time.sleep(0.1)
+
+button_pressed = []
+listener_thread = threading.Thread(target=button_listener, args = (button_pressed,))
+listener_thread.start()
+
+print("Listening...")
+
 while True:
-    for i in range(strip.numPixels()):
-        strip.setPixelColor(i - 1, lighttools.BLACK)
-        strip.setPixelColor(i, rainbow.colours[i])
-        strip.show()
-    for i in reversed(range(strip.numPixels())):
-        strip.setPixelColor(i + 1, lighttools.BLACK)
-        strip.setPixelColor(i, rainbow.colours[i])
-        strip.show()
-"""
-
-previous_magnitudes = diffs = magnitudes = np.zeros(8)
-
-while True:
-    
-    samples = soundtools.getsamples(stream, CHUNK)
-    
-    if samples == 0:
-        # Buffer overflow. Just grab some more data.
-        continue
-    
-    
-    magnitudes = gfilter.process(samples)
-    mn = min(magnitudes)
-    mx = max(magnitudes) - mn   
-    #magnitudes[:] = [int((mag - mn) * 255/mx) for mag in magnitudes] # Scale to 255 - Only for the benefit of wheel??
-
-    dominant = magnitudes.index(max(magnitudes))
-    primary = rainbow.colours[int(dominant * (strip.numPixels()/len(magnitudes)))] #if mx > (10 * mn) else lighttools.BLACK
-    #pixels.insert(0, primary)
-    pixels.append(primary) 
-    if (len(pixels) > strip.numPixels()):
-        pixels.pop(0)
-    lighttools.setpixels(strip, pixels)
-    
-
-    """
-    blocksize = int(strip.numPixels()/len(magnitudes))
-    for i in range(len(magnitudes)):
-        for j in range(blocksize):
-            strip.setPixelColor(i * blocksize + j, lighttools.wheel(magnitudes[i]) if magnitudes[i] > 32 else Color(0,0,0))
-    strip.show()
-    """
-    
-    """
-    # Normalize so that the quietest maps to 0 and the loudest to 1. This is not good enough.
-    cropped_fourier = fft.process(samples)
-    cropped_fourier *= (1/max(cropped_fourier))
-
-    ourcolours = [(rgb * intensity) for rgb, intensity in zip(rainbow.rgbs, cropped_fourier)]
-    lighttools.setpixels(strip, ourcolours)
-    """
-    """
-    previous_magnitudes = magnitudes
-    magnitudes = np.array(gfilter.process(samples))
-    diffs = magnitudes - previous_magnitudes
-    if max(diffs) > 10**6: # magic
-        dominant = diffs.argmax()
-        primary = rainbow.colours[int(dominant * (strip.numPixels()/len(magnitudes)))]
-        #pixels.insert(0, primary)
-        pixels.append(primary) 
-        if (len(pixels) > strip.numPixels()):
-            pixels.pop(0)
-        lighttools.setpixels(strip, pixels)
-    """
-
-print("* done recording")   
-stream.stop_stream()
-stream.close()
-p.terminate()
+    try:
+        if button_pressed: # Move on to the next program
+            button_pressed.pop()
+            print("Tick")
+            current_program = next(program_cycle)
+        
+        samples = soundtools.getsamples(stream, CHUNK) # Grab a chunk
+        pixels = current_program.process(samples) # As the programs what pixels to show
+        lighttools.setpixels(strip, pixels, True) # Send them to the led manager
+    except KeyboardInterrupt as e:
+        print("Closing...")
+        RUNNING = False 
+        stream.stop_stream()
+        stream.close()
+        break

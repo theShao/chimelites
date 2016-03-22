@@ -24,10 +24,12 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="lighttools.py" />
-    <Compile Include="listen-mk1.py" />
-    <Compile Include="listen-mk2.py" />
     <Compile Include="listen.py" />
+    <Compile Include="wintests.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="neopixel.py" />
+    <Compile Include="programs.py" />
     <Compile Include="pyaudio\build\lib.linux-armv7l-3.2\pyaudio.py" />
     <Compile Include="pyaudio\setup.py" />
     <Compile Include="pyaudio\sphinx\conf.py" />
@@ -42,7 +44,6 @@
     <Compile Include="pyaudio\test\wire_full.py" />
     <Compile Include="pyaudio\test\wire_half.py" />
     <Compile Include="soundtools.py" />
-    <Compile Include="strandtest.py" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="pyaudio" />
@@ -54,6 +55,9 @@
   </ItemGroup>
   <ItemGroup>
     <InterpreterReference Include="{9a7a9026-48c1-4688-9d5d-e5699d47d074}\3.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="notes.txt" />
   </ItemGroup>
   <Import Project="$(PtvsTargetsFile)" Condition="Exists($(PtvsTargetsFile))" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" Condition="!Exists($(PtvsTargetsFile))" />

@@ -1,0 +1,35 @@
+Uncouple sampling frequency from led update frequency?
+tidy fft for graphic equalizer https://www.raspberrypi.org/forums/viewtopic.php?t=35838&p=454041
+
+
+Time domain energy of sinewave e = N(AMP^2)/2
+       If all energy is in sine wave, goertzal output p = (AMP*N/2)^2
+       So we would expect p = e*(N/2) if tone is present              
+
+       So by comparing power in signal to power from goertzal filter 
+       we can make decide if tone is presnet.  The sweep results from
+       Test2/pgoertzal.m indicate the power is 10dB (linear 0.1) down
+       at the edges of the detection mask.
+
+
+	   
+        #time_domain_energy = sum([sample ** 2 for sample in samples])   
+
+
+def read_ain(i):    
+    global bus
+    bus.write_byte(0x48, i)
+    bus.read_byte(0x48)#first 2 are last state, and last state repeated.
+    bus.read_byte(0x48)
+    return bus.read_byte(0x48)
+
+while(True):
+    print(chr(27) + "[2J")
+    print(read_ain(0))
+    print(read_ain(1))
+    print(read_ain(2))
+    print(read_ain(3))
+    time.sleep(0.25)
+
+
+
